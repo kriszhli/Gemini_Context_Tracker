@@ -191,11 +191,11 @@ let mutationTimeout: number | null = null;
 const observer = new MutationObserver(() => {
     // Debounce the scraping
     if (mutationTimeout) window.clearTimeout(mutationTimeout);
-    mutationTimeout = window.setTimeout(() => {
+    mutationTimeout = window.setTimeout(async () => {
         // Only scrape if we are not getting active network intercepts
         // We update fallback if we haven't seen a network update in 5 seconds
         if (lastUpdateSource !== 'network' || (Date.now() - lastUpdateTimestamp > 5000)) {
-            const estimate = scraper.estimateTokens();
+            const estimate = await scraper.estimateTokens();
             // Only update if there are actually tokens found
             if (estimate.totalTokenCount > 0) {
                 updateUI(estimate, 'fallback_estimate');

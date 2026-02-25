@@ -1,5 +1,5 @@
-import { getEncoding } from 'js-tiktoken';
 import { UsageMetadata } from '../shared/types';
+import type { Tiktoken } from 'js-tiktoken';
 
 /**
  * Fallback Scraper using js-tiktoken.
@@ -7,13 +7,21 @@ import { UsageMetadata } from '../shared/types';
  * Scrapes the highly nested DOM of Gemini web UI to guess tokens.
  */
 export class FallbackScraper {
-    private encoder = getEncoding("cl100k_base");
+    private encoderPromise: Promise<Tiktoken> | null = null;
 
     // Multimodal Heuristics for Gemini
     private readonly IMAGE_TOKEN_COUNT = 258;
     private readonly VIDEO_TOKENS_PER_SEC = 263;
 
-    public estimateTokens(): UsageMetadata {
+    private async getEncoder(): Promise<Tiktoken> {
+        if (!this.encoderPromise) {
+            this.encoderPromise = import('js-tiktoken').then(({ getEncoding }) => getEncoding("cl100k_base"));
+        }
+        return this.encoderPromise;
+    }
+
+    public async estimateTokens(): Promise<UsageMetadata> {
+        const encoder = await this.getEncoder();
         let promptTokens = 0;
         let candidatesTokens = 0;
 
@@ -22,7 +30,7 @@ export class FallbackScraper {
         // We'll use a broad heuristic looking for common ARIA roles or structure since class names might be obfuscated.
         const userQueries = document.querySelectorAll('user-query, [data-test-id="user-query"], .user-query'); // Note: actual classes vary
         userQueries.forEach(query => {
-            promptTokens += this.encoder.encode(query.textContent || "").length;
+            promptTokens += encoder.encode(query.textContent || "").length;
         });
 
         // 2. Scrape Multimodal in Prompts
@@ -41,7 +49,7 @@ export class FallbackScraper {
         // 3. Scrape Responses (Model outputs)
         const responses = document.querySelectorAll('message-content, [data-test-id="model-response"], .model-response');
         responses.forEach(response => {
-            candidatesTokens += this.encoder.encode(response.textContent || "").length;
+            candidatesTokens += encoder.encode(response.textContent || "").length;
         });
 
         return {
@@ -51,7 +59,8 @@ export class FallbackScraper {
         };
     }
 
-    public getTokensForText(text: string): number {
-        return this.encoder.encode(text).length;
+    public async getTokensForText(text: string): Promise<number> {
+        const encoder = await this.getEncoder();
+        return encoder.encode(text).length;
     }
 }
