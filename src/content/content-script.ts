@@ -40,16 +40,16 @@ class GeminiContextHUD {
         box-shadow: 0 8px 32px rgba(0, 0, 0, 0.5);
         transition: width 0.3s ease, height 0.3s ease, border-radius 0.3s ease, padding 0.3s ease, background-color 0.3s ease;
         box-sizing: border-box;
+        cursor: grab;
+      }
+      .hud-wrapper:active {
+        cursor: grabbing;
       }
       .hud-header {
         display: flex;
         justify-content: space-between;
         align-items: center;
         margin-bottom: 12px;
-        cursor: grab;
-      }
-      .hud-header:active {
-        cursor: grabbing;
       }
       .hud-title { 
         margin: 0; 
@@ -180,12 +180,6 @@ class GeminiContextHUD {
       wrapper.classList.add('minimized');
     });
 
-    wrapper.addEventListener('click', () => {
-      if (wrapper.classList.contains('minimized')) {
-        wrapper.classList.remove('minimized');
-      }
-    });
-
     this.shadowRoot.appendChild(style);
     this.shadowRoot.appendChild(wrapper);
   }
@@ -224,27 +218,27 @@ class GeminiContextHUD {
 
   private setupDraggable() {
     const wrapper = this.shadowRoot.querySelector('.hud-wrapper') as HTMLElement;
-    const header = this.shadowRoot.getElementById('hud-header') as HTMLElement;
 
     let isDragging = false;
+    let hasDragged = false;
     let dragStartX = 0;
     let dragStartY = 0;
+    let startMouseX = 0;
+    let startMouseY = 0;
 
     let currentX = 0;
     let currentY = 0;
 
     const dragStart = (e: MouseEvent) => {
-      if (wrapper.classList.contains('minimized') && (e.target as HTMLElement).closest('#hud-header') === null) {
-        // allow dragging from anywhere when minimized
-      } else if (!wrapper.classList.contains('minimized') && (e.target as HTMLElement).closest('#hud-header') === null) {
-        return;
-      }
-
       const target = e.target as HTMLElement;
       if (target.closest('#minimize-btn')) return;
 
       isDragging = true;
+      hasDragged = false;
       const rect = wrapper.getBoundingClientRect();
+
+      startMouseX = e.clientX;
+      startMouseY = e.clientY;
 
       // Calculate offset from current mouse position to wrapper's top-left
       dragStartX = e.clientX - rect.left;
@@ -260,6 +254,10 @@ class GeminiContextHUD {
       if (!isDragging) return;
 
       e.preventDefault();
+
+      if (Math.abs(e.clientX - startMouseX) > 3 || Math.abs(e.clientY - startMouseY) > 3) {
+        hasDragged = true;
+      }
 
       currentX = e.clientX - dragStartX;
       currentY = e.clientY - dragStartY;
@@ -285,16 +283,21 @@ class GeminiContextHUD {
       wrapper.style.transition = 'width 0.3s ease, height 0.3s ease, border-radius 0.3s ease, padding 0.3s ease, background-color 0.3s ease';
     };
 
-    header.addEventListener('mousedown', dragStart);
-    // When minimized, allow dragging the whole circle
-    wrapper.addEventListener('mousedown', (e) => {
-      if (wrapper.classList.contains('minimized')) {
-        dragStart(e);
-      }
-    });
-
+    wrapper.addEventListener('mousedown', dragStart);
     document.addEventListener('mousemove', dragAction);
     document.addEventListener('mouseup', dragEnd);
+
+    wrapper.addEventListener('click', (e) => {
+      if (hasDragged) {
+        e.preventDefault();
+        e.stopPropagation();
+        return;
+      }
+
+      if (wrapper.classList.contains('minimized')) {
+        wrapper.classList.remove('minimized');
+      }
+    });
   }
 }
 
