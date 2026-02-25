@@ -7,22 +7,22 @@ import { FallbackScraper } from './fallback-scraper';
  */
 
 class GeminiContextHUD {
-    private container: HTMLElement;
-    private shadowRoot: ShadowRoot;
+  private container: HTMLElement;
+  private shadowRoot: ShadowRoot;
 
-    constructor() {
-        this.container = document.createElement('div');
-        this.container.id = 'gemini-context-tracker-hud';
+  constructor() {
+    this.container = document.createElement('div');
+    this.container.id = 'gemini-context-tracker-hud';
 
-        // Open shadow dom to isolate CSS classes
-        this.shadowRoot = this.container.attachShadow({ mode: 'open' });
-        this.initUI();
-        document.body.appendChild(this.container);
-    }
+    // Open shadow dom to isolate CSS classes
+    this.shadowRoot = this.container.attachShadow({ mode: 'open' });
+    this.initUI();
+    document.body.appendChild(this.container);
+  }
 
-    private initUI() {
-        const style = document.createElement('style');
-        style.textContent = `
+  private initUI() {
+    const style = document.createElement('style');
+    style.textContent = `
       .hud-wrapper {
         position: fixed;
         bottom: 24px;
@@ -84,19 +84,19 @@ class GeminiContextHUD {
       }
     `;
 
-        const wrapper = document.createElement('div');
-        wrapper.className = 'hud-wrapper';
-        wrapper.innerHTML = `
+    const wrapper = document.createElement('div');
+    wrapper.className = 'hud-wrapper';
+    wrapper.innerHTML = `
       <div class="hud-header">
         <h3 class="hud-title">Context Window</h3>
       </div>
       <div class="stats-grid">
         <div>
-          <div class="stat-label">Prompt</div>
+          <div class="stat-label">User</div>
           <div class="stat-value" id="prompt-tokens">0</div>
         </div>
         <div>
-          <div class="stat-label">Candidates</div>
+          <div class="stat-label">Gemini</div>
           <div class="stat-value" id="candidate-tokens">0</div>
         </div>
       </div>
@@ -109,42 +109,42 @@ class GeminiContextHUD {
       </div>
     `;
 
-        this.shadowRoot.appendChild(style);
-        this.shadowRoot.appendChild(wrapper);
+    this.shadowRoot.appendChild(style);
+    this.shadowRoot.appendChild(wrapper);
+  }
+
+  public updateTokens(event: TokenEvent) {
+    const { promptTokenCount, candidatesTokenCount, totalTokenCount } = event.data;
+
+    // Example fixed limit for 1M models. Later we can dynamically pull limits from src/shared/types.ts PLAN_LIMITS
+    const MAX_LIMIT = 1048576;
+
+    this.shadowRoot.getElementById('prompt-tokens')!.innerText = promptTokenCount.toLocaleString();
+    this.shadowRoot.getElementById('candidate-tokens')!.innerText = candidatesTokenCount.toLocaleString();
+    this.shadowRoot.getElementById('total-tokens')!.innerText = totalTokenCount.toLocaleString();
+
+    const percentage = Math.min((totalTokenCount / MAX_LIMIT) * 100, 100);
+    const progressBar = this.shadowRoot.getElementById('progress-bar') as HTMLElement;
+    progressBar.style.width = `${percentage}%`;
+
+    // Dynamic color threshold warning
+    if (percentage > 90) {
+      progressBar.style.backgroundColor = '#ff5252'; // Red limit alert
+    } else if (percentage > 75) {
+      progressBar.style.backgroundColor = '#ffb300'; // Orange warning
+    } else {
+      progressBar.style.backgroundColor = '#4caf50'; // Safe Green
     }
-
-    public updateTokens(event: TokenEvent) {
-        const { promptTokenCount, candidatesTokenCount, totalTokenCount } = event.data;
-
-        // Example fixed limit for 1M models. Later we can dynamically pull limits from src/shared/types.ts PLAN_LIMITS
-        const MAX_LIMIT = 1048576;
-
-        this.shadowRoot.getElementById('prompt-tokens')!.innerText = promptTokenCount.toLocaleString();
-        this.shadowRoot.getElementById('candidate-tokens')!.innerText = candidatesTokenCount.toLocaleString();
-        this.shadowRoot.getElementById('total-tokens')!.innerText = totalTokenCount.toLocaleString();
-
-        const percentage = Math.min((totalTokenCount / MAX_LIMIT) * 100, 100);
-        const progressBar = this.shadowRoot.getElementById('progress-bar') as HTMLElement;
-        progressBar.style.width = `${percentage}%`;
-
-        // Dynamic color threshold warning
-        if (percentage > 90) {
-            progressBar.style.backgroundColor = '#ff5252'; // Red limit alert
-        } else if (percentage > 75) {
-            progressBar.style.backgroundColor = '#ffb300'; // Orange warning
-        } else {
-            progressBar.style.backgroundColor = '#4caf50'; // Safe Green
-        }
-    }
+  }
 }
 
 
 function injectNetworkInterceptor() {
-    const script = document.createElement('script');
-    // Vite + CRX pattern: path refers to src file, bundler handles the mapping locally
-    script.src = chrome.runtime.getURL('src/content/main-world-interceptor.ts');
-    script.onload = () => script.remove();
-    (document.head || document.documentElement).appendChild(script);
+  const script = document.createElement('script');
+  // Vite + CRX pattern: path refers to src file, bundler handles the mapping locally
+  script.src = chrome.runtime.getURL('src/content/main-world-interceptor.ts');
+  script.onload = () => script.remove();
+  (document.head || document.documentElement).appendChild(script);
 }
 
 // 1. Setup Interceptor
@@ -159,61 +159,63 @@ let lastUpdateTimestamp = 0;
 
 // Update UI wrapper
 function updateUI(metadata: UsageMetadata, source: 'network' | 'fallback_estimate') {
-    // If we recently got a network update, don't overwrite it with a fallback estimate immediately
-    if (source === 'fallback_estimate' && lastUpdateSource === 'network' && (Date.now() - lastUpdateTimestamp < 5000)) {
-        return; // Trust network more
-    }
+  // If we recently got a network update, don't overwrite it with a fallback estimate immediately
+  if (source === 'fallback_estimate' && lastUpdateSource === 'network' && (Date.now() - lastUpdateTimestamp < 5000)) {
+    return; // Trust network more
+  }
 
-    lastUpdateSource = source;
-    lastUpdateTimestamp = Date.now();
+  lastUpdateSource = source;
+  lastUpdateTimestamp = Date.now();
 
-    hud.updateTokens({ type: 'TOKEN_UPDATE', data: metadata, source });
+  hud.updateTokens({ type: 'TOKEN_UPDATE', data: metadata, source });
 }
 
 // 3. Listen for Main World Intercepts
 window.addEventListener('message', (event) => {
-    if (event.source !== window || event.data?.source !== 'gemini-network-interceptor') {
-        return;
-    }
+  if (event.source !== window || event.data?.source !== 'gemini-network-interceptor') {
+    return;
+  }
 
-    const metadata: UsageMetadata = event.data.payload;
-    updateUI(metadata, 'network');
+  const metadata: UsageMetadata = event.data.payload;
+  console.log('[Gemini Tracker isolated script] Received metadata from interceptor:', metadata);
+  updateUI(metadata, 'network');
 
-    // Forward usage stats to Background Script for persistence/organization
-    chrome.runtime.sendMessage({
-        type: 'NETWORK_INTERCEPT_USAGE',
-        data: metadata
-    });
+  // Forward usage stats to Background Script for persistence/organization
+  chrome.runtime.sendMessage({
+    type: 'NETWORK_INTERCEPT_USAGE',
+    data: metadata
+  });
 });
 
 // 4. Setup DOM Mutation Observer as fallback
 let mutationTimeout: number | null = null;
 const observer = new MutationObserver(() => {
-    // Debounce the scraping
-    if (mutationTimeout) window.clearTimeout(mutationTimeout);
-    mutationTimeout = window.setTimeout(async () => {
-        // Only scrape if we are not getting active network intercepts
-        // We update fallback if we haven't seen a network update in 5 seconds
-        if (lastUpdateSource !== 'network' || (Date.now() - lastUpdateTimestamp > 5000)) {
-            const estimate = await scraper.estimateTokens();
-            // Only update if there are actually tokens found
-            if (estimate.totalTokenCount > 0) {
-                updateUI(estimate, 'fallback_estimate');
-            }
-        }
-    }, 1000);
+  // Debounce the scraping
+  if (mutationTimeout) window.clearTimeout(mutationTimeout);
+  mutationTimeout = window.setTimeout(async () => {
+    // Only scrape if we are not getting active network intercepts
+    // We update fallback if we haven't seen a network update in 5 seconds
+    if (lastUpdateSource !== 'network' || (Date.now() - lastUpdateTimestamp > 5000)) {
+      const estimate = await scraper.estimateTokens();
+      console.log('[Gemini Tracker isolated script] Fallback estimate produced:', estimate);
+      // Only update if there are actually tokens found
+      if (estimate.totalTokenCount > 0) {
+        updateUI(estimate, 'fallback_estimate');
+      }
+    }
+  }, 1000);
 });
 
 observer.observe(document.body, {
-    childList: true,
-    subtree: true,
-    characterData: true
+  childList: true,
+  subtree: true,
+  characterData: true
 });
 
 // 5. Listen for Token Update broadcasts from Background Setup (e.g., from other tabs)
 chrome.runtime.onMessage.addListener((message) => {
-    if (message.type === 'TOKEN_UPDATE') {
-        const event = message as TokenEvent;
-        updateUI(event.data, event.source);
-    }
+  if (message.type === 'TOKEN_UPDATE') {
+    const event = message as TokenEvent;
+    updateUI(event.data, event.source);
+  }
 });
