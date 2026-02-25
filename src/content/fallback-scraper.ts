@@ -26,31 +26,39 @@ export class FallbackScraper {
         let candidatesTokens = 0;
 
         // 1. Scrape Prompts (User inputs)
-        // Gemini typical selector for user queries: \`message-content\` or \`user-query\` (Need robust selectors)
-        // We'll use a broad heuristic looking for common ARIA roles or structure since class names might be obfuscated.
-        const userQueries = document.querySelectorAll('user-query, [data-test-id="user-query"], .user-query'); // Note: actual classes vary
-        userQueries.forEach(query => {
-            promptTokens += encoder.encode(query.textContent || "").length;
-        });
-
-        // 2. Scrape Multimodal in Prompts
-        // Images
-        const images = document.querySelectorAll('user-query img, [data-test-id="user-query"] img');
-        promptTokens += images.length * this.IMAGE_TOKEN_COUNT;
-
-        // Videos - often just a video tag if natively uploaded
-        const videos = document.querySelectorAll('user-query video') as NodeListOf<HTMLVideoElement>;
-        videos.forEach(video => {
-            // Assuming naive 10 second average if duration not loaded yet
-            const durationStr = video.duration && !isNaN(video.duration) ? video.duration : 10;
-            promptTokens += Math.ceil(durationStr) * this.VIDEO_TOKENS_PER_SEC;
-        });
+        const userQueries = document.querySelectorAll('user-query, [data-test-id="user-query"], .user-query, [class*="user-query"], [class*="user-message"], .query-text, message-content[sender="user"]');
 
         // 3. Scrape Responses (Model outputs)
-        const responses = document.querySelectorAll('message-content, [data-test-id="model-response"], .model-response');
-        responses.forEach(response => {
-            candidatesTokens += encoder.encode(response.textContent || "").length;
-        });
+        const responses = document.querySelectorAll('message-content, [data-test-id="model-response"], .model-response, [class*="model-response"], [class*="model-message"], .response-text, message-content[sender="model"]');
+
+        if (userQueries.length === 0 && responses.length === 0) {
+            // Aggressive fallback if specific elements are obscured by minified classes
+            const chatContainer = document.querySelector('chat-app, infinite-scroller, #chat-history, main, [role="main"]');
+            if (chatContainer) {
+                // If we can't separate prompt from candidates, we stick it all in promptTokens for total count
+                promptTokens += encoder.encode(chatContainer.textContent || "").length;
+            } else {
+                promptTokens += encoder.encode(document.body.innerText || "").length;
+            }
+        } else {
+            userQueries.forEach(query => {
+                promptTokens += encoder.encode(query.textContent || "").length;
+            });
+
+            // 2. Scrape Multimodal in Prompts
+            const images = document.querySelectorAll('img'); // broader match just in case
+            promptTokens += images.length * this.IMAGE_TOKEN_COUNT;
+
+            const videos = document.querySelectorAll('video') as NodeListOf<HTMLVideoElement>;
+            videos.forEach(video => {
+                const durationStr = video.duration && !isNaN(video.duration) ? video.duration : 10;
+                promptTokens += Math.ceil(durationStr) * this.VIDEO_TOKENS_PER_SEC;
+            });
+
+            responses.forEach(response => {
+                candidatesTokens += encoder.encode(response.textContent || "").length;
+            });
+        }
 
         return {
             promptTokenCount: promptTokens,

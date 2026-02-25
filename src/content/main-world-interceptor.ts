@@ -4,46 +4,76 @@
  * Runs in the same world as the Gemini web app, explicitly giving access to network response bodies.
  */
 
+// 1. Intercept Fetch
 const originalFetch = window.fetch;
-
 window.fetch = async (...args) => {
-    // Fire original request
     const response = await originalFetch(...args);
-
-    // Clone response to parse without consuming the stream the web app needs
     const clone = response.clone();
 
-    // Gemini chat responses often go to a /chat or internal endpoint
-    if (args[0] && typeof args[0] === 'string' && args[0].includes('google.com')) {
-        try {
-            // Note: In reality, Gemini's responses might be streamed or protobuf/gRPC chunks.
-            // This is the ideal naive interception, aiming to grab 'usageMetadata' if sent in plain JSON format.
-            const text = await clone.text();
-
-            // Attempt to extract usageMetadata from JSON payload
-            const usageMatch = text.match(/"usageMetadata"\s*:\s*({[^}]+})/);
-
-            if (usageMatch && usageMatch[1]) {
-                const usageMetadata = JSON.parse(usageMatch[1]);
-
-                // Broadcast up to the Isolated World Content Script
-                window.postMessage({
-                    source: 'gemini-network-interceptor',
-                    payload: {
-                        promptTokenCount: usageMetadata.promptTokenCount || 0,
-                        candidatesTokenCount: usageMetadata.candidatesTokenCount || 0,
-                        cachedContentTokenCount: usageMetadata.cachedContentTokenCount || 0,
-                        totalTokenCount: usageMetadata.totalTokenCount || 0,
-                    }
-                }, '*');
-            }
-        } catch (e) {
-            // Fail silently to avoid breaking the core page flow
-            console.warn('Context Tracker: failed to intercept response body', e);
-        }
+    let url = '';
+    if (typeof args[0] === 'string') {
+        url = args[0];
+    } else if (args[0] instanceof Request) {
+        url = args[0].url;
+    } else if (args[0] instanceof URL) {
+        url = args[0].href;
     }
 
+    if (url.includes('/batched') || url.includes('/chat') || url.includes('gemini') || url.includes('google.com')) {
+        try {
+            const text = await clone.text();
+            extractUsage(text);
+        } catch (e) {
+            // Stream was locked or failed
+        }
+    }
     return response;
 };
 
-console.log('Gemini Context Tracker: MAIN world fetch interceptor initialized.');
+// 2. Intercept XHR
+const XHR = XMLHttpRequest;
+const xhrOpen = XHR.prototype.open;
+const xhrSend = XHR.prototype.send;
+
+(XHR.prototype as any).open = function (this: XMLHttpRequest & { _url?: string | URL }, _method: string, url: string | URL) {
+    this._url = url;
+    return xhrOpen.apply(this, arguments as any);
+};
+
+(XHR.prototype as any).send = function (this: XMLHttpRequest & { _url?: string | URL }) {
+    this.addEventListener('load', () => {
+        const urlStr = String(this._url);
+        if (urlStr.includes('/batched') || urlStr.includes('/chat') || urlStr.includes('gemini') || urlStr.includes('google.com')) {
+            try {
+                if (this.responseText) {
+                    extractUsage(this.responseText);
+                }
+            } catch (e) { }
+        }
+    });
+    return xhrSend.apply(this, arguments as any);
+};
+
+function extractUsage(text: string) {
+    // Sometimes the stream sends chunks, match globally and take the last one
+    const usageMatches = [...text.matchAll(/"usageMetadata"\s*:\s*({[^}]+})/g)];
+    if (usageMatches.length > 0) {
+        try {
+            // Get the most recent iteration of usage info in the stream
+            const lastMatch = usageMatches[usageMatches.length - 1][1];
+            const usageMetadata = JSON.parse(lastMatch);
+
+            window.postMessage({
+                source: 'gemini-network-interceptor',
+                payload: {
+                    promptTokenCount: usageMetadata.promptTokenCount || 0,
+                    candidatesTokenCount: usageMetadata.candidatesTokenCount || 0,
+                    cachedContentTokenCount: usageMetadata.cachedContentTokenCount || 0,
+                    totalTokenCount: usageMetadata.totalTokenCount || 0,
+                }
+            }, '*');
+        } catch (e) { }
+    }
+}
+
+console.log('Gemini Context Tracker: MAIN world fetch/XHR interceptor initialized.');
